@@ -189,9 +189,10 @@ export async function createZeroDevWalletCore(
   // A key this tab reloaded because another tab committed it, so a refresh can
   // still adopt that tab's session; cleared when this tab commits its own key.
   let keyFromAnotherTab: string | null = null
-  // This tab's own key commits, so a reload that overlapped one, possible only
-  // without Web Locks, never labels this tab's key as another tab's.
-  const ownCommits = { started: 0, inFlight: 0 }
+  // This tab's key commits that succeeded and those still running, so a reload
+  // that overlapped one, possible only without Web Locks, never labels this
+  // tab's key as another tab's, while a failed attempt doesn't count.
+  const ownCommits = { committed: 0, inFlight: 0 }
 
   // Another tab may have rotated the shared key since this tab's stamper loaded
   // it. Callers hold the cross-tab lock and pass a stored session, so reload()
@@ -199,7 +200,7 @@ export async function createZeroDevWalletCore(
   const reconcileApiKey = async (session: ZeroDevWalletSession) => {
     if (session.stamperType !== 'apiKey' || !client.apiKeyStamper.reload) return
     const expected = session.publicKey ?? parseSession(session.token).publicKey
-    const commitsBefore = ownCommits.started
+    const commitsBefore = ownCommits.committed
     const loaded = await client.apiKeyStamper.getPublicKey()
     if (
       expected &&
@@ -212,7 +213,7 @@ export async function createZeroDevWalletCore(
       if (
         reloaded &&
         normalizeKey(reloaded) !== normalizeKey(loaded ?? '') &&
-        ownCommits.started === commitsBefore &&
+        ownCommits.committed === commitsBefore &&
         ownCommits.inFlight === 0
       ) {
         keyFromAnotherTab = reloaded
@@ -284,8 +285,6 @@ export async function createZeroDevWalletCore(
     targetPublicKey: string,
   ) => {
     await sessionStorageManager.stageSessionTransition(session, targetPublicKey)
-    // Counted from the key commit, so a failed staging doesn't count as one.
-    ownCommits.started++
     ownCommits.inFlight++
     try {
       await commitOwnKeyAndSession(targetPublicKey)
@@ -299,6 +298,7 @@ export async function createZeroDevWalletCore(
       await client.apiKeyStamper.commitKeyRotation()
       // This tab's own key is active now, not one taken over from another tab.
       keyFromAnotherTab = null
+      ownCommits.committed++
     } catch (error) {
       await client.apiKeyStamper.discardKeyRotation()
       const activePublicKey = await client.apiKeyStamper.getPublicKey()
@@ -312,6 +312,7 @@ export async function createZeroDevWalletCore(
         throw error
       }
       keyFromAnotherTab = null
+      ownCommits.committed++
       return
     }
 

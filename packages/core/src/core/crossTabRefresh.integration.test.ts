@@ -34,6 +34,8 @@ function tabStamper(
     /** Delays the next reload's vault read, after `reloading` is called. */
     reload?: Promise<void>
     reloading?: () => void
+    /** Makes the next key commit fail before it writes anything. */
+    failCommit?: boolean
   } = {},
 ): ApiKeyStamper & {
   activeKey: () => string | null
@@ -63,6 +65,10 @@ function tabStamper(
     stampPending: stamp,
     signPending: async () => 'sig',
     commitKeyRotation: async () => {
+      if (hold.failCommit) {
+        delete hold.failCommit
+        throw new Error('Vault write failed')
+      }
       await hold.commit
       if (pending) {
         active = pending
@@ -295,6 +301,7 @@ function origin(opts: { queue?: boolean } = {}) {
             commit?: Promise<void>
             reload?: Promise<void>
             reloading?: () => void
+            failCommit?: boolean
           }
         | undefined
       passkey?: PasskeyStamper
@@ -597,6 +604,48 @@ describe('requests from a tab another tab has moved on from', () => {
     await account.signMessage({ message: 'hello' }).catch(() => {})
     // The signature took over A's key, so the refresh below can't see it change.
     expect(tabB.stamper.activeKey()).toBe(refreshed?.publicKey)
+    kms.stampLogins = 0
+
+    await expect(tabB.core.refreshSession(before?.id)).resolves.toMatchObject({
+      id: refreshed?.id,
+    })
+    expect(kms.stampLogins).toBe(0)
+  })
+
+  it("without Web Locks, a failed key commit during a reload doesn't hide another tab's refresh", async () => {
+    vi.stubGlobal('navigator', undefined)
+    const hold: {
+      commit?: Promise<void>
+      reload?: Promise<void>
+      reloading?: () => void
+      failCommit?: boolean
+    } = {}
+    const { kms, open } = origin()
+    const tabA = await open()
+    await tabA.core.auth({ type: 'passkey', mode: 'login' })
+    const tabB = await open({ hold })
+    const before = await tabB.core.getSession()
+    const account = await tabB.core.toAccount()
+    const refreshed = await tabA.core.refreshSession(before?.id)
+
+    // B's request reloads A's key; while that reload is open, B's own login fails to commit its key.
+    let reloadStarted = () => {}
+    const reloading = new Promise<void>((resolve) => {
+      reloadStarted = resolve
+    })
+    let finishReload = () => {}
+    hold.reload = new Promise<void>((resolve) => {
+      finishReload = resolve
+    })
+    hold.reloading = reloadStarted
+    const signing = account.signMessage({ message: 'hello' }).catch(() => {})
+    await reloading
+    hold.failCommit = true
+    await expect(
+      tabB.core.auth({ type: 'passkey', mode: 'login' }),
+    ).rejects.toThrow()
+    finishReload()
+    await signing
     kms.stampLogins = 0
 
     await expect(tabB.core.refreshSession(before?.id)).resolves.toMatchObject({
