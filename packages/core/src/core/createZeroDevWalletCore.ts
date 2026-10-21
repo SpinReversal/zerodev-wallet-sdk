@@ -283,20 +283,18 @@ export async function createZeroDevWalletCore(
     session: ZeroDevWalletSession,
     targetPublicKey: string,
   ) => {
+    await sessionStorageManager.stageSessionTransition(session, targetPublicKey)
+    // Counted from the key commit, so a failed staging doesn't count as one.
     ownCommits.started++
     ownCommits.inFlight++
     try {
-      await commitOwnKeyAndSession(session, targetPublicKey)
+      await commitOwnKeyAndSession(targetPublicKey)
     } finally {
       ownCommits.inFlight--
     }
   }
 
-  const commitOwnKeyAndSession = async (
-    session: ZeroDevWalletSession,
-    targetPublicKey: string,
-  ) => {
-    await sessionStorageManager.stageSessionTransition(session, targetPublicKey)
+  const commitOwnKeyAndSession = async (targetPublicKey: string) => {
     try {
       await client.apiKeyStamper.commitKeyRotation()
       // This tab's own key is active now, not one taken over from another tab.

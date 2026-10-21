@@ -605,6 +605,52 @@ describe('requests from a tab another tab has moved on from', () => {
     expect(kms.stampLogins).toBe(0)
   })
 
+  it("without Web Locks, a login failing to stage during a reload doesn't hide another tab's refresh", async () => {
+    vi.stubGlobal('navigator', undefined)
+    const hold: {
+      commit?: Promise<void>
+      reload?: Promise<void>
+      reloading?: () => void
+    } = {}
+    const { kms, adapter, open } = origin()
+    const tabA = await open()
+    await tabA.core.auth({ type: 'passkey', mode: 'login' })
+    const tabB = await open({ hold })
+    const before = await tabB.core.getSession()
+    const account = await tabB.core.toAccount()
+    const refreshed = await tabA.core.refreshSession(before?.id)
+
+    // B's request reloads A's key; while that reload is open, B's own login fails to stage.
+    let reloadStarted = () => {}
+    const reloading = new Promise<void>((resolve) => {
+      reloadStarted = resolve
+    })
+    let finishReload = () => {}
+    hold.reload = new Promise<void>((resolve) => {
+      finishReload = resolve
+    })
+    hold.reloading = reloadStarted
+    const signing = account.signMessage({ message: 'hello' }).catch(() => {})
+    await reloading
+    const setItem = adapter.setItem
+    adapter.setItem = (key, value) => {
+      if (key === '@zerodev/session_transition') throw new Error('Storage full')
+      return setItem(key, value)
+    }
+    await expect(
+      tabB.core.auth({ type: 'passkey', mode: 'login' }),
+    ).rejects.toThrow()
+    adapter.setItem = setItem
+    finishReload()
+    await signing
+    kms.stampLogins = 0
+
+    await expect(tabB.core.refreshSession(before?.id)).resolves.toMatchObject({
+      id: refreshed?.id,
+    })
+    expect(kms.stampLogins).toBe(0)
+  })
+
   it("still adopts another tab's refresh after this tab's own login failed to stage", async () => {
     vi.stubGlobal('navigator', { locks: webLocks() })
     const { kms, adapter, open } = origin()
