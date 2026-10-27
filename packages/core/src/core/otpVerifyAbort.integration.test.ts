@@ -247,7 +247,8 @@ describe('otp verify: a canceled verify stores nothing', () => {
       await tabB.core.auth(verify(ORG_B))
       const signedInB = await tabB.core.getSession()
       controller.abort()
-      servers.release()
+      // A held verify request ends only through its abort; a held login has already answered.
+      if (step === 'login') servers.release()
 
       const error = await verifyingA
       expect(error).toBeInstanceOf(DOMException)
