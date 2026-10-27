@@ -356,12 +356,15 @@ export async function createZeroDevWalletCore(
     targetPublicKey: string,
     signal?: AbortSignal,
   ) =>
-    withCrossTabLock(async () => {
-      // Checked under the lock, so a canceled sign-in never replaces a
-      // session another tab stored while it was in flight.
-      signal?.throwIfAborted()
-      await commitReplacementSessionLocked(session, targetPublicKey)
-    })
+    withCrossTabLock(
+      async () => {
+        // Checked under the lock, so a canceled sign-in never replaces a
+        // session another tab stored while it was in flight.
+        signal?.throwIfAborted()
+        await commitReplacementSessionLocked(session, targetPublicKey)
+      },
+      { signal },
+    )
 
   await withKeyTransition(() =>
     withCrossTabLock(async () => {

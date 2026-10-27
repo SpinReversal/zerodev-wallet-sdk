@@ -164,6 +164,29 @@ function stubServers(hold: { code: string; step: 'verify' | 'login' }) {
   return { reached: reached.promise, release: release.resolve }
 }
 
+/**
+ * `navigator.locks` with the lock held by another tab that never lets go. A
+ * request waits, and rejects with its signal's reason if that aborts first.
+ */
+function heldLocks() {
+  let waiting = 0
+  return {
+    request: (
+      _name: string,
+      options: { signal?: AbortSignal },
+      _task: () => Promise<unknown>,
+    ) =>
+      new Promise((_resolve, reject) => {
+        waiting++
+        options.signal?.addEventListener('abort', () => {
+          waiting--
+          reject(options.signal?.reason)
+        })
+      }),
+    waiting: () => waiting,
+  }
+}
+
 /** A Core in its own module instance, as a separate tab has. */
 async function openTab(
   vault: ReturnType<typeof sharedVault>,
@@ -235,6 +258,25 @@ describe('otp verify: a canceled verify stores nothing', () => {
       expect(tabA.apiKeyStamper.pendingKey()).toBeNull()
     },
   )
+
+  it('stops waiting for a cross-tab lock another tab holds', async () => {
+    const vault = sharedVault()
+    const storage = sharedStorage()
+    stubServers({ code: 'none', step: 'verify' })
+    const tab = await openTab(vault, storage)
+    const locks = heldLocks()
+    vi.stubGlobal('navigator', { locks })
+    const controller = new AbortController()
+
+    const verifying = caught(tab.core.auth(verify(ORG_A, controller.signal)))
+    await vi.waitFor(() => expect(locks.waiting()).toBe(1))
+    controller.abort()
+
+    const error = await verifying
+    expect((error as DOMException).name).toBe('AbortError')
+    expect(await tab.core.getSession()).toBeUndefined()
+    expect(tab.apiKeyStamper.pendingKey()).toBeNull()
+  })
 
   it('rejects at once for a signal already aborted, without a request', async () => {
     const vault = sharedVault()

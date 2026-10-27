@@ -19,10 +19,18 @@ export const withCrossTabLock = async <T>(
   task: () => Promise<T>,
   // Shared for work that only reads the vault and session, e.g. a stamped
   // request, which may run together but never during another tab's change.
-  { mode = 'exclusive' }: { mode?: LockMode } = {},
+  // `signal` stops waiting for the lock; once granted, the task runs on.
+  {
+    mode = 'exclusive',
+    signal,
+  }: { mode?: LockMode; signal?: AbortSignal | undefined } = {},
 ): Promise<T> => {
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks
   return locks
-    ? await locks.request(KEY_TRANSITION_LOCK, { mode }, task)
+    ? await locks.request(
+        KEY_TRANSITION_LOCK,
+        signal ? { mode, signal } : { mode },
+        task,
+      )
     : task()
 }
