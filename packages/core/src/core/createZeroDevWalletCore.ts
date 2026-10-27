@@ -93,6 +93,11 @@ export type AuthParams =
     }
 
 export interface ZeroDevWalletSDK {
+  /**
+   * The raw API client. Each call stamps with the key this instance loaded and
+   * the token the caller passes, so it is not kept in step with other tabs;
+   * for requests that must be, use `toAccount()`.
+   */
   client: ZeroDevWalletClient
   auth: (params: AuthParams) => Promise<any>
 
@@ -128,6 +133,11 @@ export interface ZeroDevWalletSDK {
     sessionId?: string
   }) => Promise<boolean>
 
+  /**
+   * An account whose every request reads the stored token and stamps with its
+   * key under the cross-tab lock, so it follows another tab's refresh, and
+   * refuses once another tab signed in to a different owner.
+   */
   toAccount: () => Promise<LocalAccount>
 }
 
@@ -208,10 +218,16 @@ export async function createZeroDevWalletCore(
     ) {
       await client.apiKeyStamper.reload()
       const reloaded = await client.apiKeyStamper.getPublicKey()
+      // Without Web Locks the vault can hold a third tab's half-committed key;
+      // pairing the session's token with it would stamp as that tab.
+      if (!reloaded || normalizeKey(reloaded) !== normalizeKey(expected)) {
+        throw new Error(
+          "The key vault doesn't hold the stored session's key; another tab may be replacing it.",
+        )
+      }
       // Only a key the reload changed, with no commit of this tab's own around
       // it, came from another tab.
       if (
-        reloaded &&
         normalizeKey(reloaded) !== normalizeKey(loaded ?? '') &&
         ownCommits.committed === commitsBefore &&
         ownCommits.inFlight === 0

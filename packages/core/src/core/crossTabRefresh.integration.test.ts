@@ -524,6 +524,30 @@ describe('requests from a tab another tab has moved on from', () => {
     expect(tabB.stamper.activeKey()).toBe(v.key)
   })
 
+  it("leaves the raw client on this tab's loaded key; only toAccount() follows another tab", async () => {
+    vi.stubGlobal('navigator', { locks: webLocks() })
+    const { kms, v, tabA, tabB } = await twoTabs()
+    const before = await tabB.core.getSession()
+    const loadedByB = tabB.stamper.activeKey()
+    const refreshed = await tabA.core.refreshSession(before?.id)
+    kms.requests.length = 0
+
+    await tabB.core.client
+      .signMessage({
+        organizationId: refreshed?.organizationId as string,
+        projectId: 'project-a',
+        token: refreshed?.token as string,
+        address: '0x1111111111111111111111111111111111111111',
+        message: 'hello',
+        encoding: 'utf8',
+      })
+      .catch(() => {})
+
+    const signing = kms.requests.find((r) => r.path === 'sign/message')
+    expect(signing?.stamp).toBe(`stamp:${loadedByB}`)
+    expect(loadedByB).not.toBe(v.key)
+  })
+
   it("waits for another tab's refresh commit, then signs with its token and key", async () => {
     vi.stubGlobal('navigator', { locks: webLocks() })
     const holdA: { commit?: Promise<void> } = {}
@@ -610,6 +634,31 @@ describe('requests from a tab another tab has moved on from', () => {
       id: refreshed?.id,
     })
     expect(kms.stampLogins).toBe(0)
+  })
+
+  it("without Web Locks, refuses to pair the session's token with a third tab's half-committed key", async () => {
+    vi.stubGlobal('navigator', undefined)
+    const { kms, v, open } = origin()
+    const tabA = await open()
+    await tabA.core.auth({ type: 'passkey', mode: 'login' })
+    const tabB = await open()
+    const before = await tabB.core.getSession()
+    const account = await tabB.core.toAccount()
+    await tabA.core.refreshSession(before?.id)
+    // A third tab has written its new key to the vault but not yet its session.
+    v.key = sessionKey(++v.minted)
+    kms.requests.length = 0
+
+    await expect(account.signMessage({ message: 'hello' })).rejects.toThrow(
+      "doesn't hold the stored session's key",
+    )
+    expect(kms.requests).toEqual([])
+
+    // Nor does it take the third tab's key for another tab's refresh to adopt.
+    kms.stampLogins = 0
+    await expect(tabB.core.refreshSession(before?.id)).rejects.toThrow()
+    expect(kms.stampLogins).toBe(0)
+    expect(kms.requests).toEqual([])
   })
 
   it("without Web Locks, a failed key commit during a reload doesn't hide another tab's refresh", async () => {
