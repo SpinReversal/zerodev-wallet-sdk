@@ -150,3 +150,56 @@ describe('rest transport — X-SDK-Version', () => {
     )
   })
 })
+
+describe('rest transport — caller signal', () => {
+  // Rejects when its signal aborts, as fetch does.
+  const fetchMock = vi.fn(
+    (_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        const abort = () => reject(new DOMException('aborted', 'AbortError'))
+        if (init.signal?.aborted) abort()
+        init.signal?.addEventListener('abort', abort)
+      }),
+  )
+  const transport = () =>
+    rest('https://kms.test/api/v1', {
+      apiKeyStamper: makeStamper('X-Stamp'),
+      passkeyStamper: makeStamper('X-Stamp-Webauthn'),
+      timeoutMs: 50,
+    })
+
+  beforeEach(() => {
+    fetchMock.mockClear()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("rejects with the signal's reason, not a timeout, when the caller cancels", async () => {
+    const controller = new AbortController()
+    const request = transport().request({
+      path: 'x',
+      signal: controller.signal,
+    })
+    const reason = new Error('canceled')
+    controller.abort(reason)
+    await expect(request).rejects.toBe(reason)
+  })
+
+  it('still reports its own timeout as a timeout', async () => {
+    const request = transport().request({
+      path: 'x',
+      signal: new AbortController().signal,
+    })
+    await expect(request).rejects.toMatchObject({ name: 'RestTimeoutError' })
+  })
+
+  it('sends nothing for a signal already aborted', async () => {
+    await expect(
+      transport().request({ path: 'x', signal: AbortSignal.abort() }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})

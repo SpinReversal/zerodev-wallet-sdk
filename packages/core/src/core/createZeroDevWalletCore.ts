@@ -74,6 +74,11 @@ export type AuthParams =
        * Required — used to HPKE-encrypt the OTP attempt to the enclave.
        */
       otpEncryptionTargetBundle: string
+      /**
+       * Cancels the verify. Once aborted it rejects with the signal's reason
+       * and stores nothing, unless its session was already being stored.
+       */
+      signal?: AbortSignal | undefined
     }
   | {
       type: 'magicLink'
@@ -90,6 +95,8 @@ export type AuthParams =
        * (a.k.a. magicLink `send`) call. Required for the encrypted-OTP flow.
        */
       otpEncryptionTargetBundle: string
+      /** Cancels the verify, as for an `otp` verify. */
+      signal?: AbortSignal | undefined
     }
 
 export interface ZeroDevWalletSDK {
@@ -347,10 +354,14 @@ export async function createZeroDevWalletCore(
   const commitReplacementSession = (
     session: ZeroDevWalletSession,
     targetPublicKey: string,
+    signal?: AbortSignal,
   ) =>
-    withCrossTabLock(() =>
-      commitReplacementSessionLocked(session, targetPublicKey),
-    )
+    withCrossTabLock(async () => {
+      // Checked under the lock, so a canceled sign-in never replaces a
+      // session another tab stored while it was in flight.
+      signal?.throwIfAborted()
+      await commitReplacementSessionLocked(session, targetPublicKey)
+    })
 
   await withKeyTransition(() =>
     withCrossTabLock(async () => {
@@ -668,6 +679,7 @@ export async function createZeroDevWalletCore(
                 otpId: params.otpId,
                 otpCode: params.code,
                 otpEncryptionTargetBundle: params.otpEncryptionTargetBundle,
+                signal: params.signal,
               }
             }
           } else {
@@ -688,7 +700,9 @@ export async function createZeroDevWalletCore(
 
           if (otpParams.mode === 'verifyOtp') {
             return withKeyTransition(async () => {
-              const { otpId, otpCode, otpEncryptionTargetBundle } = otpParams
+              const { otpId, otpCode, otpEncryptionTargetBundle, signal } =
+                otpParams
+              signal?.throwIfAborted()
               const targetPublicKey = await prepareFreshKeyRotation()
 
               try {
@@ -702,17 +716,17 @@ export async function createZeroDevWalletCore(
 
                 if (!cachedAuthProxyConfigId) {
                   const { authProxyConfigId } =
-                    await client.getAuthProxyConfigId()
+                    await client.getAuthProxyConfigId(signal)
                   cachedAuthProxyConfigId = authProxyConfigId
                 }
                 const authProxyClient = createAuthProxyClient({
                   authProxyConfigId: cachedAuthProxyConfigId,
                 })
 
-                const { verificationToken } = await authProxyClient.verifyOtp({
-                  otpId,
-                  encryptedOtpBundle,
-                })
+                const { verificationToken } = await authProxyClient.verifyOtp(
+                  { otpId, encryptedOtpBundle },
+                  signal,
+                )
 
                 const clientSignature = await buildClientSignature({
                   verificationToken,
@@ -727,6 +741,7 @@ export async function createZeroDevWalletCore(
                   verificationToken,
                   clientSignature,
                   projectId,
+                  signal,
                 })
 
                 if (!data.session) {
@@ -738,7 +753,7 @@ export async function createZeroDevWalletCore(
                   targetPublicKey,
                   'otp',
                 )
-                await commitReplacementSession(session, targetPublicKey)
+                await commitReplacementSession(session, targetPublicKey, signal)
                 return data
               } catch (error) {
                 await client.apiKeyStamper.discardKeyRotation()

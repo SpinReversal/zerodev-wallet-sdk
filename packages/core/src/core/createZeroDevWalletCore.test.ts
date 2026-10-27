@@ -612,6 +612,7 @@ describe('auth — passkey login', () => {
 describe('auth — otp', () => {
   it('threads the OTP through encrypt → auth-proxy verify → client signature → login', async () => {
     const sdk = await createZeroDevWalletCore(baseConfig())
+    const { signal } = new AbortController()
 
     const data = await sdk.auth({
       type: 'otp',
@@ -619,6 +620,7 @@ describe('auth — otp', () => {
       otpId: 'otp-1',
       otpCode: '123456',
       otpEncryptionTargetBundle: 'target-bundle',
+      signal,
     })
 
     // OTP is HPKE-sealed to the freshly generated key.
@@ -631,10 +633,10 @@ describe('auth — otp', () => {
     expect(createAuthProxyClient).toHaveBeenCalledWith({
       authProxyConfigId: 'cfg-1',
     })
-    expect(h.authProxyClient.verifyOtp).toHaveBeenCalledWith({
-      otpId: 'otp-1',
-      encryptedOtpBundle: 'encrypted-otp-bundle',
-    })
+    expect(h.authProxyClient.verifyOtp).toHaveBeenCalledWith(
+      { otpId: 'otp-1', encryptedOtpBundle: 'encrypted-otp-bundle' },
+      signal,
+    )
     // verificationToken flows into both the signature and the backend login.
     expect(h.buildClientSignature).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -646,6 +648,7 @@ describe('auth — otp', () => {
       verificationToken: 'v-token',
       clientSignature: 'client-signature',
       projectId: 'proj-1',
+      signal,
     })
     expect(data).toEqual({ session: VALID_JWT })
 
@@ -754,6 +757,7 @@ describe('auth — magicLink normalization', () => {
 
   it('verify is normalized into the OTP verify flow', async () => {
     const sdk = await createZeroDevWalletCore(baseConfig())
+    const { signal } = new AbortController()
 
     await sdk.auth({
       type: 'magicLink',
@@ -761,6 +765,7 @@ describe('auth — magicLink normalization', () => {
       otpId: 'otp-9',
       code: '654321',
       otpEncryptionTargetBundle: 'ml-bundle',
+      signal,
     })
 
     expect(h.encryptOtpAttempt).toHaveBeenCalledWith(
@@ -771,6 +776,7 @@ describe('auth — magicLink normalization', () => {
     )
     expect(h.authProxyClient.verifyOtp).toHaveBeenCalledWith(
       expect.objectContaining({ otpId: 'otp-9' }),
+      signal,
     )
     expect(await sdk.getSession()).toMatchObject({ token: VALID_JWT })
   })

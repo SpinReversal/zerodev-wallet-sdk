@@ -12,9 +12,11 @@ export type GetAuthProxyConfigIdReturnType = {
  */
 export async function getAuthProxyConfigId(
   client: Client,
+  signal?: AbortSignal,
 ): Promise<GetAuthProxyConfigIdReturnType> {
   return await client.request({
     path: 'server-info/auth-proxy-id',
     method: 'GET',
+    signal,
   })
 }

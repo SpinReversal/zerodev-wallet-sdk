@@ -36,6 +36,7 @@ export function createAuthProxyClient(config: AuthProxyClientConfig) {
     path: string,
     body: unknown,
     method: 'POST' | 'GET' = 'POST',
+    signal?: AbortSignal,
   ): Promise<T> {
     const fetchOptions: RequestInit = {
       method,
@@ -43,6 +44,7 @@ export function createAuthProxyClient(config: AuthProxyClientConfig) {
         'Content-Type': 'application/json',
         'X-Auth-Proxy-Config-Id': authProxyConfigId,
       },
+      signal: signal ?? null,
     }
 
     if (method !== 'GET') {
@@ -75,8 +77,14 @@ export function createAuthProxyClient(config: AuthProxyClientConfig) {
      */
     async verifyOtp(
       params: AuthProxyVerifyOtpRequest,
+      signal?: AbortSignal,
     ): Promise<AuthProxyVerifyOtpResponse> {
-      return request<AuthProxyVerifyOtpResponse>('/v1/otp_verify_v2', params)
+      return request<AuthProxyVerifyOtpResponse>(
+        '/v1/otp_verify_v2',
+        params,
+        'POST',
+        signal,
+      )
     },
   }
 }

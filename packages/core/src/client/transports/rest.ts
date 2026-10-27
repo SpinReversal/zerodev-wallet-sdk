@@ -21,6 +21,8 @@ export type RestRequestArgs = {
   stampPostion?: 'body' | 'headers' | 'timestamp'
   /** Include credentials (cookies) in the request */
   credentials?: RequestCredentials
+  /** Cancels the request; it then rejects with the signal's reason, not a timeout. */
+  signal?: AbortSignal | undefined
 }
 
 export type RestRequestFn = <T = any>(args: RestRequestArgs) => Promise<T>
@@ -54,8 +56,11 @@ export function rest(url: string, cfg: RestTransportConfig): RestTransport {
 
   const request: RestRequestFn = async (args) => {
     const fullUrl = `${url}/${args.path}`
+    args.signal?.throwIfAborted()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const cancel = () => controller.abort()
+    args.signal?.addEventListener('abort', cancel, { once: true })
 
     try {
       let requestBody = args.body
@@ -151,10 +156,12 @@ export function rest(url: string, cfg: RestTransportConfig): RestTransport {
       if (!res.ok) throw new RestRequestError(fullUrl, res.status, data)
       return data as any
     } catch (err: any) {
+      if (args.signal?.aborted) throw args.signal.reason
       if (err.name === 'AbortError') throw new RestTimeoutError(fullUrl)
       throw err
     } finally {
       clearTimeout(timer)
+      args.signal?.removeEventListener('abort', cancel)
     }
   }
 

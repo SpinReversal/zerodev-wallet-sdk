@@ -7,6 +7,8 @@ export type LoginWithOTPParameters = {
   clientSignature: string
   /** The project ID for the request */
   projectId: string
+  /** Cancels the login request */
+  signal?: AbortSignal | undefined
 }
 
 export type LoginWithOTPReturnType = {
@@ -44,7 +46,7 @@ export async function loginWithOTP(
   client: Client,
   params: LoginWithOTPParameters,
 ): Promise<LoginWithOTPReturnType> {
-  const { verificationToken, clientSignature, projectId } = params
+  const { verificationToken, clientSignature, projectId, signal } = params
 
   return await client.request({
     path: `${projectId}/auth/login/otp`,
@@ -53,5 +55,6 @@ export async function loginWithOTP(
       verificationToken,
       clientSignature,
     },
+    signal,
   })
 }

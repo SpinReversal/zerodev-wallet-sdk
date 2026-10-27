@@ -163,7 +163,9 @@ export type ZeroDevWalletActions = {
   /**
    * Gets the auth proxy config ID from the backend
    */
-  getAuthProxyConfigId: () => Promise<GetAuthProxyConfigIdReturnType>
+  getAuthProxyConfigId: (
+    signal?: AbortSignal,
+  ) => Promise<GetAuthProxyConfigIdReturnType>
 
   /**
    * Gets the Turnkey parent (base) organization ID from the backend
@@ -222,7 +224,7 @@ export function zeroDevWalletActions(client: Client): ZeroDevWalletActions {
     loginWithStamp: (params) => loginWithStamp(client, params),
     registerWithOTP: (params) => registerWithOTP(client, params),
     loginWithOTP: (params) => loginWithOTP(client, params),
-    getAuthProxyConfigId: () => getAuthProxyConfigId(client),
+    getAuthProxyConfigId: (signal) => getAuthProxyConfigId(client, signal),
     getParentOrgId: () => getParentOrgId(client),
     getOAuthLoginUrl: (params) => getOAuthLoginUrl(client, params),
   }
