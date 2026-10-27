@@ -198,9 +198,10 @@ export function createProvider({
           err.status === 401
         ) {
           try {
-            // Only the rejected session: another tab may have signed in since.
+            // Only the rejected session: another tab may have signed in since,
+            // or refreshed this account, whose session this tab then adopts.
             await wallet.logout({ sessionId: session.id })
-            store.getState().clear()
+            await clearUnlessRefreshedElsewhere(session)
             return
           } catch (logoutError) {
             console.error('Failed to clear rejected session:', logoutError)
